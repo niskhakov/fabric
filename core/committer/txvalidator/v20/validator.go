@@ -7,7 +7,16 @@ SPDX-License-Identifier: Apache-2.0
 package txvalidator
 
 import (
+	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/x509"
+	"encoding/hex"
+	"encoding/pem"
+	"os"
+	"regexp"
+	"sort"
+	"strconv"
 	"time"
 
 	"github.com/golang/protobuf/proto"
@@ -22,6 +31,8 @@ import (
 	"github.com/hyperledger/fabric/common/policies"
 	"github.com/hyperledger/fabric/core/committer/txvalidator/plugin"
 	"github.com/hyperledger/fabric/core/committer/txvalidator/v20/plugindispatcher"
+	"github.com/hyperledger/fabric/core/committer/txvalidator/v20/vrf/p256"
+
 	"github.com/hyperledger/fabric/core/common/validation"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/internal/pkg/txflags"
@@ -66,6 +77,13 @@ type LedgerResources interface {
 	// A client can obtain more than one 'QueryExecutor's for parallel execution.
 	// Any synchronization should be performed at the implementation level if required
 	NewQueryExecutor() (ledger.QueryExecutor, error)
+
+	// GetBlockByHash returns a block given it's hash
+	GetBlockByHash(blockHash []byte) (*common.Block, error)
+
+	// GetBlockByNumber returns block at a given height
+	// blockNumber of  math.MaxUint64 will return last block
+	GetBlockByNumber(blockNumber uint64) (*common.Block, error)
 }
 
 // Dispatcher is an interface to decouple tx validator
@@ -73,6 +91,7 @@ type LedgerResources interface {
 type Dispatcher interface {
 	// Dispatch invokes the appropriate validation plugin for the supplied transaction in the block
 	Dispatch(seq int, payload *common.Payload, envBytes []byte, block *common.Block) (peer.TxValidationCode, error)
+	GetInfoForValidate(chdr *common.ChannelHeader, ccID string) (string, []byte, error)
 }
 
 //go:generate mockery -dir . -name ChannelResources -case underscore -output mocks/
@@ -368,6 +387,18 @@ func (v *TxValidator) validateTx(req *blockValidationRequest, results chan<- *bl
 				return
 			}
 
+			randCheckResult := v.checkRandomization(chdr, payload, block)
+			logger.Infof("Overall randomization: got %v \n", randCheckResult)
+			if !randCheckResult {
+				results <- &blockValidationResult{
+					tIdx: tIdx,
+					// err: errors.New("Randomization check was not passed"),
+					validationCode: peer.TxValidationCode_INVALID_OTHER_REASON,
+				}
+				return
+			}
+
+
 			// Validate tx with plugins
 			logger.Debug("Validating transaction with plugins")
 			cde, err := v.Dispatcher.Dispatch(tIdx, payload, d, block)
@@ -449,6 +480,280 @@ func (v *TxValidator) validateTx(req *blockValidationRequest, results chan<- *bl
 		}
 		return
 	}
+}
+
+func (v *TxValidator) checkRandomization(chdr *common.ChannelHeader, payload *common.Payload, block *common.Block) bool {
+		logger.Info("VRFRandomCheck: Channel Id: ", chdr.ChannelId)
+		logger.Info("VRFRandomCheck: Block number: ", block.Header.Number)
+		logger.Info("VRFRandomCheck: Block Hash: ", block.Header.PreviousHash)
+
+		tx, err := protoutil.UnmarshalTransaction(payload.Data)
+		if err != nil {
+			logger.Errorf("VSCC error: GetTransaction failed, err %s", err)
+			return false
+		}
+
+		hdr, err := protoutil.UnmarshalSignatureHeader(payload.Header.SignatureHeader)
+		if err != nil {
+			logger.Infof("VRFRandomCheck: Cannot decode SignatureHeader from payload.Header.SignatureHeader err => %v \n", err)
+			return false
+		}
+
+		nMspId, err := protoutil.UnmarshalSerializedIdentity(hdr.Creator)
+		if err != nil {
+			logger.Infof("VRFRandomCheck: Cannot decode SerializedIdentity from Header.Creator, err => %v \n", err)
+			return false
+		}
+
+		// logger.Infof("VRFRandomCheck: Creator bytes: %s, Creator: %s \n", hex.EncodeToString(nMspId.IdBytes), nMspId.Mspid)
+
+		// Validate Endorsement Randomization, usually there is one action in tx
+		for i, act := range tx.Actions {
+
+			// if the type is ENDORSER_TRANSACTION we unmarshal a ChaincodeActionPayload
+			ccActionPayload, err := protoutil.UnmarshalChaincodeActionPayload(act.Payload)
+			if err != nil {
+				logger.Info("VRFRandomCheck: Cannot decode ChaincodeActionPayload")
+				return false
+			}
+
+			prp, err := protoutil.UnmarshalProposalResponsePayload(ccActionPayload.Action.ProposalResponsePayload)
+			if err != nil {
+				logger.Info("VRFRandomCheck: Cannot decode ProposalResponsePayload")
+				return false
+			}
+
+			// #### Getting MspIDs of orgs, that gave endorsement to this tx
+			aeps := ccActionPayload.Action.Endorsements
+			nEndorserMsps := make([]string, 0, len(aeps))
+
+			for epi, epv := range aeps {
+				mspElem, err := protoutil.UnmarshalSerializedIdentity(epv.Endorser)
+				if err != nil {
+					logger.Infof("VRFRandomCheck: endorsement[%d]: cannot deserialize endorser - %v\n", epi, err)
+					return false
+				}
+
+				logger.Infof("VRFRandomCheck: decoding msp -> mspid: %s, mspidLen: %d, mspidIdByteLen: %d \n", mspElem.Mspid, len(mspElem.Mspid), len(mspElem.IdBytes))
+				nEndorserMsps = append(nEndorserMsps, mspElem.Mspid)
+			}
+
+			logger.Infof("VRFRandomCheck: Got endorsements from %v, LEN=%d\n", nEndorserMsps, len(nEndorserMsps))
+
+
+			// // #### Getting information about tx chaincode arguments
+			// cpp, err := protoutil.UnmarshalChaincodeProposalPayload(ccActionPayload.ChaincodeProposalPayload)
+			// if err != nil {
+			// 	logger.Info("VRFRandomCheck: Cannot decode ChaincodeProposalPayload")
+			// 	return false
+			// }
+
+			// cis, err := protoutil.UnmarshalChaincodeInvocationSpec(cpp.Input)
+			// if err != nil {
+			// 	logger.Info("VRFRandomCheck: Cannot decode ChaincodeInvocationSpec")
+			// 	return false
+			// }
+		
+			// if cis.ChaincodeSpec == nil {
+			// 	logger.Info("VRFRandomCheck: ChaincodeInvocationSpec is nil")
+			// 	return false
+			// }
+		
+			// if cis.ChaincodeSpec.Input == nil {
+			// 	logger.Info("VRFRandomCheck: ChaincodeInvocationSpec.Input is nil")
+			// 	return false
+			// }
+
+			// logger.Infof("VRFRandomCheck:experimental: ChaincodeSpec -> ChaincodeId = %s \n", cis.ChaincodeSpec.ChaincodeId.Name)
+			
+			// logger.Infof("VRFRandomCheck:ccinvoke: args -> %s, decs: %v \n", cis.ChaincodeSpec.Input.Args, cis.ChaincodeSpec.Input.Decorations)
+
+
+			// #### Getting name of the invoked chaincode
+			if prp.Extension == nil {
+				logger.Info("VRFRandomCheck: Response payload is missing extension")
+				return false
+			}
+		
+			respPayload, err := protoutil.UnmarshalChaincodeAction(prp.Extension)
+			if err != nil {
+				logger.Info("VRFRandomCheck: Cannot unmarshal chaincode action")
+				return false
+			}
+			nCcId := respPayload.ChaincodeId.Name
+
+			// Do not randomize _lyfecycle cc policy
+			if nCcId == "_lyfecycle" {
+				return true
+			}
+
+			logger.Infof("VRFRandomCheck:action[%d]: Chaincode %s was invoked\n", i, nCcId)
+
+			_, nCCPolicy, err := v.Dispatcher.GetInfoForValidate(chdr, nCcId)
+			if err != nil {
+				logger.Infof("VRFRandomCheck:dispatcher: Cannot receive chaincode policy from dispatcher, err -> %v \n", err)
+				return false
+			}
+
+			// logger.Infof("VRFRandomCheck:dispatcher:cc=%s: ValidationPlugin = %s, Serialized Policy = %s\n", nCcId, nValidationPlugin, nCCPolicy)
+			
+			nPolicy := &peer.ApplicationPolicy{}
+			err = proto.Unmarshal(nCCPolicy, nPolicy)
+			if err != nil {
+				logger.Infof("VRFRandomCheck:ccp: failed to unmarshal ApplicationPolicy bytes, err = %v\n", err)
+				return false
+			}
+
+			nRandomization := &peer.Randomization{}
+			err = proto.Unmarshal(act.Randomization, nRandomization)
+			if err != nil {
+				logger.Info("VRFRandomCheck:rand: Cannot decode serialized proto message")
+				return false
+			}
+			logger.Infof("VRFRandomCheck:randomization: if there are any bytes %v\n", nRandomization)
+
+		
+			switch nPolicy.Type.(type) {
+
+			case *peer.ApplicationPolicy_SignaturePolicy:
+				// logger.Infof("VRFRandomCheck:ccp: Signature Policy received required N -> %d\n", nPolicy.GetSignaturePolicy().Rule.GetNOutOf().N)
+				nSPIds := nPolicy.GetSignaturePolicy().Identities
+				nIds := make([]string, 0)
+				nOutOfN := nPolicy.GetSignaturePolicy().Rule.GetNOutOf().N
+				for _, nId := range nSPIds {
+					nMSP, err := clearString(string(nId.GetPrincipal()))
+					if err != nil {
+						return false
+					}
+					nIds = append(nIds, nMSP)
+				}
+				logger.Infof("VRFRandomCheck:ccp: Got from cc policy N=%d, Msps=%v\n", nOutOfN, nIds)
+
+
+				// #### Checking Randomization
+				if nRandomization.LedgerBlockHash != nil && nRandomization.VrfOutput != nil && nRandomization.VrfProof != nil {
+					nPem, _ := pem.Decode(nMspId.IdBytes)
+					// var nPubKeyBytes []byte
+					if nPem == nil {
+						logger.Infof("VRFRandomCheck: Decoded IdBytes is not a serialized PEM block \n")
+						return false
+					} else {
+						logger.Infof("VRFRandomCheck:pem: type = %s \n", nPem.Type)
+		
+						nX509, err := x509.ParseCertificate(nPem.Bytes)
+						if err != nil {
+							logger.Info("VRFRandomCheck:x509: Cannot parse pem bytes to valid x509 certificate")
+						}
+
+						// logger.Infof("VRFRandomCheck:pem: to public ecdsa %v, %s \n", nX509.PublicKey, nX509.PublicKeyAlgorithm.String())
+
+						nPubKey := nX509.PublicKey.(*ecdsa.PublicKey)
+
+						logger.Infof("VRFRandomCheck:public key: to public ecdsa %v \n", nPubKey)
+
+						nReceivedBlock, err := v.LedgerResources.GetBlockByHash(nRandomization.LedgerBlockHash)
+						if err != nil {
+							logger.Infof("VRFRandomCheck: Cannot receive block from LedgerResoures, err %v\n", err)
+							return false
+						}
+
+						// ### Getting parameter T from env variable or default to 5
+						nT, err := strconv.Atoi(getEnv("CORE_PEER_RANDOMIZATION_T", "5"))
+						if err != nil {
+							logger.Infof("VRFRandomCheck:randenv: Cannot get parameter T for block height, use default 5 %v\n", err)
+							nT = 5
+						}
+
+						if (block.Header.Number - uint64(nT)) > nReceivedBlock.Header.Number {
+							logger.Infof("VRFRandomCheck:randcheckheight: tx hash binding block height does not correspond to rules of current ledger height and param T")
+						}
+						
+						logger.Infof("VRFRandomCheck: Block rand: %d, Curr: %d Hash: %s, Rand Chosen Block Hash: %s \n", nRandomization.LedgerHeight, nReceivedBlock.Header.Number, hex.EncodeToString(nReceivedBlock.Header.DataHash), hex.EncodeToString(nRandomization.LedgerBlockHash))
+						nBlockHashCmp := bytes.Compare(nReceivedBlock.Header.DataHash, nRandomization.LedgerBlockHash)
+						if nBlockHashCmp == 0 {
+							logger.Info("VRFRandomCheck:blockhashvalidate: Got corresponding hashes of chosen and existing in ledger block")
+						}
+
+						nVrf, err := p256.NewVRFVerifier(nPubKey)
+						if err != nil {
+							logger.Infof("VRFRandomCheck:vrf: Cannot decode Pem key to create VRF Verifier")
+							return false
+						}
+
+						// logger.Infof("VRFRandomCheck:vrf: lbh len = %d := %s, vp len = %d := %s \n", len(nRandomization.LedgerBlockHash),  nRandomization.LedgerBlockHash, len(nRandomization.VrfProof), nRandomization.VrfProof)
+						nVrfOutput, err := nVrf.ProofToHash(nRandomization.LedgerBlockHash, nRandomization.VrfProof)
+						if err != nil {
+							logger.Infof("VRFRandomCheck:vrf: Cannot proof vrf %v\n", err)
+							return false
+						}
+
+						// logger.Infof("VRFRandomCheck:vrf: Comparing result between %s and %s\n", hex.EncodeToString(nVrfOutput[:]), hex.EncodeToString(nRandomization.VrfOutput))
+
+						nVrfCompareRes := bytes.Compare(nVrfOutput[:], nRandomization.VrfOutput)
+						logger.Infof("VRFRandomCheck:vrf: Compare result between %s and %s equal to %d\n", hex.EncodeToString(nVrfOutput[:]), hex.EncodeToString(nRandomization.VrfOutput), nVrfCompareRes)
+
+						// ########## Imp Res
+						if nVrfCompareRes == 0 {
+							logger.Info("VRFRandomCheck:vrf: Got correct result of vrf hash on public seed and public key")
+						}
+
+						logger.Infof("VRFRandomCheck:randomization: Checking randomization of the CC Policy")
+						nOs := NewOrgSelector(nVrfOutput[:], int(nOutOfN), len(nIds))
+						nOs.SelectOrgs()
+						sort.Strings(nIds)
+						nChosenPeers := *nOs.MapToPeerSlice(nIds)
+						nIsCheckEndorsersFailed := false
+						for _, v := range nChosenPeers {
+							logger.Infof("\tVRFRandomCheck:rand: Chosen Peer: %s\n", v)
+							if !sliceContains(nEndorserMsps, v) {
+								logger.Infof("VRFRandomCheck:checkendorsers: required msp %s wasn't found in endorsements of tx \n", v)
+								nIsCheckEndorsersFailed = true
+							}
+						}
+						logger.Infof("VRFRandomCheck: Got endorsements from %v, LEN=%d\n", nEndorserMsps, len(nEndorserMsps))
+						
+						if nIsCheckEndorsersFailed {
+							return false
+						}
+
+						
+					}
+				}
+
+			case *peer.ApplicationPolicy_ChannelConfigPolicyReference:
+				logger.Infof("VRFRandomCheck:ccp: ChannelConfigPolicy received -> %v\n", nPolicy)
+				return true
+			default:
+				logger.Infof("VRFRandomCheck:ccp: Unsupported policy type")
+			}
+	}
+
+	return true
+}
+
+func sliceContains(a []string, x string) bool {
+	for _, n := range a {
+			if x == n {
+					return true
+			}
+	}
+	return false
+}
+
+func getEnv(key, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok {
+			return value
+	}
+	return fallback
+}
+
+
+func clearString(st string) (string, error) {
+		reg, err := regexp.Compile("[^a-zA-Z0-9]+")
+		if err != nil {
+				return "", err
+		}
+		return reg.ReplaceAllString(st, ""), nil
 }
 
 // CheckTxIdDupsLedger returns a vlockValidationResult enhanced with the respective
