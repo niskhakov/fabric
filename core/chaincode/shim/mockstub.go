@@ -207,6 +207,12 @@ func (stub *MockStub) GetState(key string) ([]byte, error) {
 	return value, nil
 }
 
+// GetStateBatch retrieves the value for a given key from the ledger
+func (stub *MockStub) GetStateBatch(keys []string) (map[string][]byte, error) {
+	// TODO: Create correct stub implementation for GetStateBatch
+	return nil, nil
+}
+
 // PutState writes the specified `value` and `key` into the ledger.
 func (stub *MockStub) PutState(key string, value []byte) error {
 	if stub.TxID == "" {
@@ -253,6 +259,13 @@ func (stub *MockStub) PutState(key string, value []byte) error {
 		stub.Keys.PushFront(key)
 		mockLogger.Debug("MockStub", stub.Name, "Key", key, "is first element in list")
 	}
+
+	return nil
+}
+
+// PutStateBatch writes multiple keys and values into the ledger
+func (stub *MockStub) PutStateBatch(kvs map[string][]byte) error {
+	// TODO: Create correct stub implementation of PutStateBatch
 
 	return nil
 }

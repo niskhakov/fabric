@@ -329,6 +329,48 @@ func (handler *Handler) handleGetState(collection string, key string, channelId 
 	return nil, errors.Errorf("[%s] incorrect chaincode message %s received. Expecting %s or %s", shorttxid(responseMsg.Txid), responseMsg.Type, pb.ChaincodeMessage_RESPONSE, pb.ChaincodeMessage_ERROR)
 }
 
+// handleGetStateBatch communicates with the peer to fetch the requested state information of multiple keys from the ledger.
+func (handler *Handler) handleGetStateBatch(collection string, keys []string, channelId string, txid string) (map[string][]byte, error) {
+	// Construct payload for BATCH_GET_STATE
+	payloadBytes, _ := proto.Marshal(&pb.GetStateBatch{Collection: collection, Keys: keys})
+
+	msg := &pb.ChaincodeMessage{Type: pb.ChaincodeMessage_GET_STATE_BATCH, Payload: payloadBytes, Txid: txid, ChannelId: channelId}
+	chaincodeLogger.Debugf("[%s] Sending %s", shorttxid(msg.Txid), pb.ChaincodeMessage_GET_STATE_BATCH)
+
+	responseMsg, err := handler.callPeerWithChaincodeMsg(msg, channelId, txid)
+	if err != nil {
+		return nil, errors.WithMessage(err, fmt.Sprintf("[%s] error sending GET_STATE_BATCH", shorttxid(txid)))
+	}
+
+	if responseMsg.Type.String() == pb.ChaincodeMessage_RESPONSE.String() {
+		// Success response
+		chaincodeLogger.Debugf("[%s] GetStateBatch received payload %s", shorttxid(responseMsg.Txid), pb.ChaincodeMessage_RESPONSE)
+
+		kvs := &pb.QueryKVs{}
+		err = proto.Unmarshal(responseMsg.Payload, kvs)
+		if err != nil {
+			chaincodeLogger.Errorf("[%s] unmarshal error", shorttxid(responseMsg.Txid))
+			return nil, errors.Errorf("[%s] GetStateBatchResponse unmarshall error", shorttxid(responseMsg.Txid))
+		}
+		kvMap := make(map[string][]byte)
+		for _, v := range kvs.Kvs {
+			kvMap[v.Key] = v.Value
+		}
+
+		return kvMap, nil
+
+	}
+	if responseMsg.Type.String() == pb.ChaincodeMessage_ERROR.String() {
+		// Error response
+		chaincodeLogger.Errorf("[%s] GetStateBatch received error %s", shorttxid(responseMsg.Txid), pb.ChaincodeMessage_ERROR)
+		return nil, errors.New(string(responseMsg.Payload[:]))
+	}
+
+	// Incorrect chaincode message received
+	chaincodeLogger.Errorf("[%s] Incorrect chaincode message %s received. Expecting %s or %s", shorttxid(responseMsg.Txid), responseMsg.Type, pb.ChaincodeMessage_RESPONSE, pb.ChaincodeMessage_ERROR)
+	return nil, errors.Errorf("[%s] incorrect chaincode message %s received. Expecting %s or %s", shorttxid(responseMsg.Txid), responseMsg.Type, pb.ChaincodeMessage_RESPONSE, pb.ChaincodeMessage_ERROR)
+}
+
 func (handler *Handler) handleGetPrivateDataHash(collection string, key string, channelId string, txid string) ([]byte, error) {
 	// Construct payload for GET_PRIVATE_DATA_HASH
 	payloadBytes, _ := proto.Marshal(&pb.GetState{Collection: collection, Key: key})
@@ -409,6 +451,41 @@ func (handler *Handler) handlePutState(collection string, key string, value []by
 	responseMsg, err := handler.callPeerWithChaincodeMsg(msg, channelId, txid)
 	if err != nil {
 		return errors.WithMessage(err, fmt.Sprintf("[%s] error sending PUT_STATE", msg.Txid))
+	}
+
+	if responseMsg.Type.String() == pb.ChaincodeMessage_RESPONSE.String() {
+		// Success response
+		chaincodeLogger.Debugf("[%s] Received %s. Successfully updated state", shorttxid(responseMsg.Txid), pb.ChaincodeMessage_RESPONSE)
+		return nil
+	}
+
+	if responseMsg.Type.String() == pb.ChaincodeMessage_ERROR.String() {
+		// Error response
+		chaincodeLogger.Errorf("[%s] Received %s. Payload: %s", shorttxid(responseMsg.Txid), pb.ChaincodeMessage_ERROR, responseMsg.Payload)
+		return errors.New(string(responseMsg.Payload[:]))
+	}
+
+	// Incorrect chaincode message received
+	chaincodeLogger.Errorf("[%s] Incorrect chaincode message %s received. Expecting %s or %s", shorttxid(responseMsg.Txid), responseMsg.Type, pb.ChaincodeMessage_RESPONSE, pb.ChaincodeMessage_ERROR)
+	return errors.Errorf("[%s] incorrect chaincode message %s received. Expecting %s or %s", shorttxid(responseMsg.Txid), responseMsg.Type, pb.ChaincodeMessage_RESPONSE, pb.ChaincodeMessage_ERROR)
+}
+
+// handlePutStateBatch communicates with the peer to put state information of multiple keys into the ledger.
+func (handler *Handler) handlePutStateBatch(collection string, kvs map[string][]byte, channelId string, txid string) error {
+	// Construct payload for PUT_STATE_BATCH
+	protoKvs := make([]*pb.StateKV, 0, len(kvs))
+	for k, v := range kvs {
+		protoKvs = append(protoKvs, &pb.StateKV{Key: k, Value: v})
+	}
+	payloadBytes, _ := proto.Marshal(&pb.PutStateBatch{Collection: collection, Kvs: protoKvs})
+
+	msg := &pb.ChaincodeMessage{Type: pb.ChaincodeMessage_PUT_STATE_BATCH, Payload: payloadBytes, Txid: txid, ChannelId: channelId}
+	chaincodeLogger.Debugf("[%s] Sending %s", shorttxid(msg.Txid), pb.ChaincodeMessage_PUT_STATE_BATCH)
+
+	// Execute the request and get response
+	responseMsg, err := handler.callPeerWithChaincodeMsg(msg, channelId, txid)
+	if err != nil {
+		return errors.WithMessage(err, fmt.Sprintf("[%s] error sending PUT_STATE_BATCH", msg.Txid))
 	}
 
 	if responseMsg.Type.String() == pb.ChaincodeMessage_RESPONSE.String() {

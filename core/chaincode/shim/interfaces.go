@@ -82,6 +82,13 @@ type ChaincodeStubInterface interface {
 	// If the key does not exist in the state database, (nil, nil) is returned.
 	GetState(key string) ([]byte, error)
 
+	// GetStateBatch returns the map of the key-value pairs for specified
+	// `keys` from the ledger. Note that GetStateBatch doesn't read data from
+	// the writeset,which has not been committed to the ledger.
+	// If the one of the key doesn't exist in the state databse, nil is
+	// returned for specific key
+	GetStateBatch(keys []string) (map[string][]byte, error)
+
 	// PutState puts the specified `key` and `value` into the transaction's
 	// writeset as a data-write proposal. PutState doesn't effect the ledger
 	// until the transaction is validated and successfully committed.
@@ -91,6 +98,16 @@ type ChaincodeStubInterface interface {
 	// key namespace. In addition, if using CouchDB, keys can only contain
 	// valid UTF-8 strings and cannot begin with an underscore ("_").
 	PutState(key string, value []byte) error
+
+	// PutStateBatch puts values for specified keys in `kv` into the
+	// transaction's writeset as a data-write proposal. PutStateBatch doesn't
+	// effect the ledger until the transaction is validated and successfully
+	// committed. Simple keys must not be an empty string and must not start
+	// with a null character (0x00) in order to avoid range query collisions
+	// with composite keys, which internally get prefixed with 0x00 as
+	// composite key namespace. In addition, if using CouchDB, keys can only
+	// contain valid UTF-8 strings and cannot begin with an underscore ("_").
+	PutStateBatch(kvs map[string][]byte) error
 
 	// DelState records the specified `key` to be deleted in the writeset of
 	// the transaction proposal. The `key` and its value will be deleted from

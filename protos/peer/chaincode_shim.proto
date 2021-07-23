@@ -39,6 +39,8 @@ message ChaincodeMessage {
         GET_STATE_METADATA = 20;
         PUT_STATE_METADATA = 21;
         GET_PRIVATE_DATA_HASH = 22;
+        GET_STATE_BATCH = 23;
+        PUT_STATE_BATCH = 24;
     }
 
     Type type = 1;
@@ -73,6 +75,22 @@ message GetStateMetadata {
     string collection = 2;
 }
 
+message GetStateBatch {
+    repeated string keys = 1;
+    string collection = 2;
+}
+
+message StateKV {
+    string key = 1;
+    bytes value = 2;
+}
+
+// QueryKVs is returned by the peer as a result of a GetStateBatch. 
+// It holds a bunch of key-value entries in kvs field
+message QueryKVs {
+    repeated StateKV kvs = 1;
+}
+
 // PutState is the payload of a ChaincodeMessage. It contains a key and value
 // which needs to be written to the transaction's write set. If the collection is
 // specified, the key and value would be written to the transaction's private
@@ -87,6 +105,11 @@ message PutStateMetadata {
     string key = 1;
     string collection = 3;
     StateMetadata metadata = 4;
+}
+
+message PutStateBatch {
+    repeated StateKV kvs = 1;
+    string collection = 2;
 }
 
 // DelState is the payload of a ChaincodeMessage. It contains a key which

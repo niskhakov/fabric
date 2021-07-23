@@ -231,6 +231,10 @@ func (h *Handler) handleMessageReadyState(msg *pb.ChaincodeMessage) error {
 		go h.HandleTransaction(msg, h.HandleGetStateMetadata)
 	case pb.ChaincodeMessage_PUT_STATE_METADATA:
 		go h.HandleTransaction(msg, h.HandlePutStateMetadata)
+	case pb.ChaincodeMessage_GET_STATE_BATCH:
+		go h.HandleTransaction(msg, h.HandleGetStateBatch)
+	case pb.ChaincodeMessage_PUT_STATE_BATCH:
+		go h.HandleTransaction(msg, h.HandlePutStateBatch)
 	default:
 		return fmt.Errorf("[%s] Fabric side handler cannot handle message (%s) while in ready state", msg.Txid, msg.Type)
 	}
@@ -662,6 +666,53 @@ func (h *Handler) HandleGetState(msg *pb.ChaincodeMessage, txContext *Transactio
 	return &pb.ChaincodeMessage{Type: pb.ChaincodeMessage_RESPONSE, Payload: res, Txid: msg.Txid, ChannelId: msg.ChannelId}, nil
 }
 
+// Handles query to ledger to get state
+func (h *Handler) HandleGetStateBatch(msg *pb.ChaincodeMessage, txContext *TransactionContext) (*pb.ChaincodeMessage, error) {
+	getStateBatch := &pb.GetStateBatch{}
+	err := proto.Unmarshal(msg.Payload, getStateBatch)
+	if err != nil {
+		return nil, errors.Wrap(err, "unmarshal failed")
+	}
+
+	var stateValues [][]byte
+	chaincodeName := h.ChaincodeName()
+	collection := getStateBatch.Collection
+	chaincodeLogger.Debugf("[%s] getting batch state for chaincode %s, channel %s", shorttxid(msg.Txid), chaincodeName, txContext.ChainID)
+
+	if isCollectionSet(collection) {
+		if txContext.IsInitTransaction {
+			return nil, errors.New("private data APIs are not allowed in chaincode Init()")
+		}
+		if err := errorIfCreatorHasNoReadAccess(chaincodeName, collection, txContext); err != nil {
+			return nil, err
+		}
+		stateValues, err = txContext.TXSimulator.GetPrivateDataMultipleKeys(chaincodeName, collection, getStateBatch.Keys)
+
+	} else {
+		stateValues, err = txContext.TXSimulator.GetStateMultipleKeys(chaincodeName, getStateBatch.Keys)
+	}
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	if stateValues == nil {
+		chaincodeLogger.Debugf("[%s] No state associated with keys. Sending %s with an empty payload", shorttxid(msg.Txid), pb.ChaincodeMessage_RESPONSE)
+	}
+
+	// Constructing response payload
+	protoKvs := make([]*pb.StateKV, 0)
+	for i, key := range getStateBatch.Keys {
+		protoKvs = append(protoKvs, &pb.StateKV{
+			Key:   key,
+			Value: stateValues[i],
+		})
+	}
+
+	payloadBytes, _ := proto.Marshal(&pb.QueryKVs{Kvs: protoKvs})
+
+	// Send response msg back to chaincode. GetState will not trigger event
+	return &pb.ChaincodeMessage{Type: pb.ChaincodeMessage_RESPONSE, Payload: payloadBytes, Txid: msg.Txid, ChannelId: msg.ChannelId}, nil
+}
+
 func (h *Handler) HandleGetPrivateDataHash(msg *pb.ChaincodeMessage, txContext *TransactionContext) (*pb.ChaincodeMessage, error) {
 	getState := &pb.GetState{}
 	err := proto.Unmarshal(msg.Payload, getState)
@@ -1064,6 +1115,36 @@ func (h *Handler) HandlePutState(msg *pb.ChaincodeMessage, txContext *Transactio
 		err = txContext.TXSimulator.SetPrivateData(chaincodeName, collection, putState.Key, putState.Value)
 	} else {
 		err = txContext.TXSimulator.SetState(chaincodeName, putState.Key, putState.Value)
+	}
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+
+	return &pb.ChaincodeMessage{Type: pb.ChaincodeMessage_RESPONSE, Txid: msg.Txid, ChannelId: msg.ChannelId}, nil
+}
+
+func (h *Handler) HandlePutStateBatch(msg *pb.ChaincodeMessage, txContext *TransactionContext) (*pb.ChaincodeMessage, error) {
+	putStateBatch := &pb.PutStateBatch{}
+	err := proto.Unmarshal(msg.Payload, putStateBatch)
+	if err != nil {
+		return nil, errors.Wrap(err, "unmarshal failed")
+	}
+
+	kvs := make(map[string][]byte)
+	for _, kv := range putStateBatch.Kvs {
+		kvs[kv.Key] = kv.Value
+	}
+
+	chaincodeName := h.ChaincodeName()
+	collection := putStateBatch.Collection
+	if isCollectionSet(collection) {
+		if txContext.IsInitTransaction {
+			return nil, errors.New("private data APIs are not allowed in chaincode Init()")
+		}
+
+		err = txContext.TXSimulator.SetPrivateDataMultipleKeys(chaincodeName, collection, kvs)
+	} else {
+		err = txContext.TXSimulator.SetStateMultipleKeys(chaincodeName, kvs)
 	}
 	if err != nil {
 		return nil, errors.WithStack(err)
