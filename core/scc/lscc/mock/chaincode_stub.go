@@ -279,17 +279,17 @@ type ChaincodeStub struct {
 		result1 []byte
 		result2 error
 	}
-	GetStateBatchStub        func([]string) (map[string][]byte, error)
+	GetStateBatchStub        func([]shim.StateKey) ([]shim.StateKV, error)
 	getStateBatchMutex       sync.RWMutex
 	getStateBatchArgsForCall []struct {
-		arg1 []string
+		arg1 []shim.StateKey
 	}
 	getStateBatchReturns struct {
-		result1 map[string][]byte
+		result1 []shim.StateKV
 		result2 error
 	}
 	getStateBatchReturnsOnCall map[int]struct {
-		result1 map[string][]byte
+		result1 []shim.StateKV
 		result2 error
 	}
 	GetStateByPartialCompositeKeyStub        func(string, []string) (shim.StateQueryIteratorInterface, error)
@@ -451,10 +451,10 @@ type ChaincodeStub struct {
 	putStateReturnsOnCall map[int]struct {
 		result1 error
 	}
-	PutStateBatchStub        func(map[string][]byte) error
+	PutStateBatchStub        func([]shim.StateKV) error
 	putStateBatchMutex       sync.RWMutex
 	putStateBatchArgsForCall []struct {
-		arg1 map[string][]byte
+		arg1 []shim.StateKV
 	}
 	putStateBatchReturns struct {
 		result1 error
@@ -1787,16 +1787,16 @@ func (fake *ChaincodeStub) GetStateReturnsOnCall(i int, result1 []byte, result2 
 	}{result1, result2}
 }
 
-func (fake *ChaincodeStub) GetStateBatch(arg1 []string) (map[string][]byte, error) {
-	var arg1Copy []string
+func (fake *ChaincodeStub) GetStateBatch(arg1 []shim.StateKey) ([]shim.StateKV, error) {
+	var arg1Copy []shim.StateKey
 	if arg1 != nil {
-		arg1Copy = make([]string, len(arg1))
+		arg1Copy = make([]shim.StateKey, len(arg1))
 		copy(arg1Copy, arg1)
 	}
 	fake.getStateBatchMutex.Lock()
 	ret, specificReturn := fake.getStateBatchReturnsOnCall[len(fake.getStateBatchArgsForCall)]
 	fake.getStateBatchArgsForCall = append(fake.getStateBatchArgsForCall, struct {
-		arg1 []string
+		arg1 []shim.StateKey
 	}{arg1Copy})
 	fake.recordInvocation("GetStateBatch", []interface{}{arg1Copy})
 	fake.getStateBatchMutex.Unlock()
@@ -1816,41 +1816,41 @@ func (fake *ChaincodeStub) GetStateBatchCallCount() int {
 	return len(fake.getStateBatchArgsForCall)
 }
 
-func (fake *ChaincodeStub) GetStateBatchCalls(stub func([]string) (map[string][]byte, error)) {
+func (fake *ChaincodeStub) GetStateBatchCalls(stub func([]shim.StateKey) ([]shim.StateKV, error)) {
 	fake.getStateBatchMutex.Lock()
 	defer fake.getStateBatchMutex.Unlock()
 	fake.GetStateBatchStub = stub
 }
 
-func (fake *ChaincodeStub) GetStateBatchArgsForCall(i int) []string {
+func (fake *ChaincodeStub) GetStateBatchArgsForCall(i int) []shim.StateKey {
 	fake.getStateBatchMutex.RLock()
 	defer fake.getStateBatchMutex.RUnlock()
 	argsForCall := fake.getStateBatchArgsForCall[i]
 	return argsForCall.arg1
 }
 
-func (fake *ChaincodeStub) GetStateBatchReturns(result1 map[string][]byte, result2 error) {
+func (fake *ChaincodeStub) GetStateBatchReturns(result1 []shim.StateKV, result2 error) {
 	fake.getStateBatchMutex.Lock()
 	defer fake.getStateBatchMutex.Unlock()
 	fake.GetStateBatchStub = nil
 	fake.getStateBatchReturns = struct {
-		result1 map[string][]byte
+		result1 []shim.StateKV
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *ChaincodeStub) GetStateBatchReturnsOnCall(i int, result1 map[string][]byte, result2 error) {
+func (fake *ChaincodeStub) GetStateBatchReturnsOnCall(i int, result1 []shim.StateKV, result2 error) {
 	fake.getStateBatchMutex.Lock()
 	defer fake.getStateBatchMutex.Unlock()
 	fake.GetStateBatchStub = nil
 	if fake.getStateBatchReturnsOnCall == nil {
 		fake.getStateBatchReturnsOnCall = make(map[int]struct {
-			result1 map[string][]byte
+			result1 []shim.StateKV
 			result2 error
 		})
 	}
 	fake.getStateBatchReturnsOnCall[i] = struct {
-		result1 map[string][]byte
+		result1 []shim.StateKV
 		result2 error
 	}{result1, result2}
 }
@@ -2608,13 +2608,18 @@ func (fake *ChaincodeStub) PutStateReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
-func (fake *ChaincodeStub) PutStateBatch(arg1 map[string][]byte) error {
+func (fake *ChaincodeStub) PutStateBatch(arg1 []shim.StateKV) error {
+	var arg1Copy []shim.StateKV
+	if arg1 != nil {
+		arg1Copy = make([]shim.StateKV, len(arg1))
+		copy(arg1Copy, arg1)
+	}
 	fake.putStateBatchMutex.Lock()
 	ret, specificReturn := fake.putStateBatchReturnsOnCall[len(fake.putStateBatchArgsForCall)]
 	fake.putStateBatchArgsForCall = append(fake.putStateBatchArgsForCall, struct {
-		arg1 map[string][]byte
-	}{arg1})
-	fake.recordInvocation("PutStateBatch", []interface{}{arg1})
+		arg1 []shim.StateKV
+	}{arg1Copy})
+	fake.recordInvocation("PutStateBatch", []interface{}{arg1Copy})
 	fake.putStateBatchMutex.Unlock()
 	if fake.PutStateBatchStub != nil {
 		return fake.PutStateBatchStub(arg1)
@@ -2632,13 +2637,13 @@ func (fake *ChaincodeStub) PutStateBatchCallCount() int {
 	return len(fake.putStateBatchArgsForCall)
 }
 
-func (fake *ChaincodeStub) PutStateBatchCalls(stub func(map[string][]byte) error) {
+func (fake *ChaincodeStub) PutStateBatchCalls(stub func([]shim.StateKV) error) {
 	fake.putStateBatchMutex.Lock()
 	defer fake.putStateBatchMutex.Unlock()
 	fake.PutStateBatchStub = stub
 }
 
-func (fake *ChaincodeStub) PutStateBatchArgsForCall(i int) map[string][]byte {
+func (fake *ChaincodeStub) PutStateBatchArgsForCall(i int) []shim.StateKV {
 	fake.putStateBatchMutex.RLock()
 	defer fake.putStateBatchMutex.RUnlock()
 	argsForCall := fake.putStateBatchArgsForCall[i]

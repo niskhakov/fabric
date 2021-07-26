@@ -76,13 +76,18 @@ message GetStateMetadata {
 }
 
 message GetStateBatch {
-    repeated string keys = 1;
-    string collection = 2;
+    message Key {
+        string key = 1;
+        string collection = 2;
+    }
+    repeated Key keys = 1;
 }
 
+// StateKV is the structure used in the result of GetStateBatch and as input to the PutStateBatch
 message StateKV {
     string key = 1;
     bytes value = 2;
+    string collection = 3;
 }
 
 // QueryKVs is returned by the peer as a result of a GetStateBatch. 
@@ -109,7 +114,6 @@ message PutStateMetadata {
 
 message PutStateBatch {
     repeated StateKV kvs = 1;
-    string collection = 2;
 }
 
 // DelState is the payload of a ChaincodeMessage. It contains a key which

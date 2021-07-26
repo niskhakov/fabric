@@ -459,10 +459,8 @@ func (stub *ChaincodeStub) GetState(key string) ([]byte, error) {
 }
 
 // GetStateBatch documentation can be found in interfaces.go
-func (stub *ChaincodeStub) GetStateBatch(keys []string) (map[string][]byte, error) {
-	// Access public data by setting the collection to empty string
-	collection := ""
-	return stub.handler.handleGetStateBatch(collection, keys, stub.ChannelId, stub.TxID)
+func (stub *ChaincodeStub) GetStateBatch(keys []StateKey) ([]StateKV, error) {
+	return stub.handler.handleGetStateBatch(keys, stub.ChannelId, stub.TxID)
 }
 
 // SetStateValidationParameter documentation can be found in interfaces.go
@@ -493,13 +491,11 @@ func (stub *ChaincodeStub) PutState(key string, value []byte) error {
 }
 
 // PutStateBatch documentation can be found in interfaces.go
-func (stub *ChaincodeStub) PutStateBatch(kvs map[string][]byte) error {
+func (stub *ChaincodeStub) PutStateBatch(kvs []StateKV) error {
 	if len(kvs) == 0 {
-		return errors.New("key-value map `kvs` must not be empty")
+		return errors.New("`kvs` slice must not be empty")
 	}
-	// Access public data by setting the collection to empty string
-	collection := ""
-	return stub.handler.handlePutStateBatch(collection, kvs, stub.ChannelId, stub.TxID)
+	return stub.handler.handlePutStateBatch(kvs, stub.ChannelId, stub.TxID)
 }
 
 func (stub *ChaincodeStub) createStateQueryIterator(response *pb.QueryResponse) *StateQueryIterator {

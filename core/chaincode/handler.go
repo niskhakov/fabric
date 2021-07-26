@@ -674,42 +674,45 @@ func (h *Handler) HandleGetStateBatch(msg *pb.ChaincodeMessage, txContext *Trans
 		return nil, errors.Wrap(err, "unmarshal failed")
 	}
 
-	var stateValues [][]byte
 	chaincodeName := h.ChaincodeName()
-	collection := getStateBatch.Collection
 	chaincodeLogger.Debugf("[%s] getting batch state for chaincode %s, channel %s", shorttxid(msg.Txid), chaincodeName, txContext.ChainID)
-
-	if isCollectionSet(collection) {
-		if txContext.IsInitTransaction {
-			return nil, errors.New("private data APIs are not allowed in chaincode Init()")
-		}
-		if err := errorIfCreatorHasNoReadAccess(chaincodeName, collection, txContext); err != nil {
-			return nil, err
-		}
-		stateValues, err = txContext.TXSimulator.GetPrivateDataMultipleKeys(chaincodeName, collection, getStateBatch.Keys)
-
-	} else {
-		stateValues, err = txContext.TXSimulator.GetStateMultipleKeys(chaincodeName, getStateBatch.Keys)
-	}
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-	if stateValues == nil {
-		chaincodeLogger.Debugf("[%s] No state associated with keys. Sending %s with an empty payload", shorttxid(msg.Txid), pb.ChaincodeMessage_RESPONSE)
-	}
 
 	// Constructing response payload
 	protoKvs := make([]*pb.StateKV, 0)
-	for i, key := range getStateBatch.Keys {
+	for _, key := range getStateBatch.Keys {
+		var res []byte
+		if isCollectionSet(key.Collection) {
+			if txContext.IsInitTransaction {
+				return nil, errors.New("private data APIs are not allowed in chaincode Init()")
+			}
+
+			// errorIfCreatorHasNoReadAccess caches read access checks
+			if err := errorIfCreatorHasNoReadAccess(chaincodeName, key.Collection, txContext); err != nil {
+				return nil, err
+			}
+
+			res, err = txContext.TXSimulator.GetPrivateData(chaincodeName, key.Collection, key.Key)
+		} else {
+			res, err = txContext.TXSimulator.GetState(chaincodeName, key.Key)
+		}
+
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
+
 		protoKvs = append(protoKvs, &pb.StateKV{
-			Key:   key,
-			Value: stateValues[i],
+			Collection: key.Collection,
+			Key:        key.Key,
+			Value:      res,
 		})
 	}
 
-	payloadBytes, _ := proto.Marshal(&pb.QueryKVs{Kvs: protoKvs})
+	payloadBytes, err := proto.Marshal(&pb.QueryKVs{Kvs: protoKvs})
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal failed")
+	}
 
-	// Send response msg back to chaincode. GetState will not trigger event
+	// Send response msg back to chaincode. GetStateBatch will not trigger event
 	return &pb.ChaincodeMessage{Type: pb.ChaincodeMessage_RESPONSE, Payload: payloadBytes, Txid: msg.Txid, ChannelId: msg.ChannelId}, nil
 }
 
@@ -1130,24 +1133,21 @@ func (h *Handler) HandlePutStateBatch(msg *pb.ChaincodeMessage, txContext *Trans
 		return nil, errors.Wrap(err, "unmarshal failed")
 	}
 
-	kvs := make(map[string][]byte)
-	for _, kv := range putStateBatch.Kvs {
-		kvs[kv.Key] = kv.Value
-	}
-
 	chaincodeName := h.ChaincodeName()
-	collection := putStateBatch.Collection
-	if isCollectionSet(collection) {
-		if txContext.IsInitTransaction {
-			return nil, errors.New("private data APIs are not allowed in chaincode Init()")
+
+	for _, kv := range putStateBatch.Kvs {
+		if isCollectionSet(kv.Collection) {
+			if txContext.IsInitTransaction {
+				return nil, errors.New("private data APIs are not allowed in chaincode Init()")
+			}
+			err = txContext.TXSimulator.SetPrivateData(chaincodeName, kv.Collection, kv.Key, kv.Value)
+		} else {
+			err = txContext.TXSimulator.SetState(chaincodeName, kv.Key, kv.Value)
 		}
 
-		err = txContext.TXSimulator.SetPrivateDataMultipleKeys(chaincodeName, collection, kvs)
-	} else {
-		err = txContext.TXSimulator.SetStateMultipleKeys(chaincodeName, kvs)
-	}
-	if err != nil {
-		return nil, errors.WithStack(err)
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
 	}
 
 	return &pb.ChaincodeMessage{Type: pb.ChaincodeMessage_RESPONSE, Txid: msg.Txid, ChannelId: msg.ChannelId}, nil

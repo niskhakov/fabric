@@ -208,9 +208,9 @@ func (stub *MockStub) GetState(key string) ([]byte, error) {
 }
 
 // GetStateBatch retrieves the value for a given key from the ledger
-func (stub *MockStub) GetStateBatch(keys []string) (map[string][]byte, error) {
+func (stub *MockStub) GetStateBatch(keys []StateKey) ([]StateKV, error) {
 	// TODO: Create correct stub implementation for GetStateBatch
-	return nil, nil
+	return nil, errors.New("Not Implemented")
 }
 
 // PutState writes the specified `value` and `key` into the ledger.
@@ -264,10 +264,10 @@ func (stub *MockStub) PutState(key string, value []byte) error {
 }
 
 // PutStateBatch writes multiple keys and values into the ledger
-func (stub *MockStub) PutStateBatch(kvs map[string][]byte) error {
+func (stub *MockStub) PutStateBatch(kvs []StateKV) error {
 	// TODO: Create correct stub implementation of PutStateBatch
 
-	return nil
+	return errors.New("Not Implemented")
 }
 
 // DelState removes the specified `key` and its value from the ledger.
