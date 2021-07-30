@@ -3,6 +3,7 @@
 package mocks
 
 import (
+	"github.com/hyperledger/fabric-protos-go/common"
 	ledger "github.com/hyperledger/fabric/core/ledger"
 	mock "github.com/stretchr/testify/mock"
 )
@@ -54,4 +55,13 @@ func (_m *LedgerResources) TxIDExists(txID string) (bool, error) {
 	}
 
 	return r0, r1
+}
+
+
+func (_m *LedgerResources) GetBlockByHash(blockHash []byte) (*common.Block, error) {
+	return &common.Block{}, nil
+}
+
+func (_m *LedgerResources) GetBlockByNumber(blockNumber uint64) (*common.Block, error) {
+	return &common.Block{}, nil
 }

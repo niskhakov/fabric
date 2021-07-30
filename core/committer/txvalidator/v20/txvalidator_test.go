@@ -38,6 +38,10 @@ func (v *mockDispatcher) Dispatch(seq int, payload *common.Payload, envBytes []b
 	return v.DispatchRv, v.DispatchErr
 }
 
+func (v *mockDispatcher) GetInfoForValidate(chdr *common.ChannelHeader, ccID string) (string, []byte, error) {
+	return "", nil, nil
+}
+
 func testValidationWithNTXes(t *testing.T, nBlocks int) {
 	rwsb := rwsetutil.NewRWSetBuilder()
 	rwsb.AddToWriteSet("ns1", "key1", []byte("value1"))
