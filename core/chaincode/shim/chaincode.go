@@ -524,6 +524,14 @@ func (stub *ChaincodeStub) DelState(key string) error {
 	return stub.handler.handleDelState(collection, key, stub.ChannelId, stub.TxID)
 }
 
+// DelStateBatch documentation can be found in interfaces.go
+func (stub *ChaincodeStub) DelStateBatch(keys []StateKey) error {
+	if len(keys) == 0 {
+		return errors.New("`keys` slice must not be empty")
+	}
+	return stub.handler.handleDelStateBatch(keys, stub.ChannelId, stub.TxID)
+}
+
 //  ---------  private state functions  ---------
 
 // GetPrivateData documentation can be found in interfaces.go

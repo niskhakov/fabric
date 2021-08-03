@@ -343,9 +343,9 @@ func (handler *Handler) handleGetState(collection string, key string, channelId 
 // handleGetStateBatch communicates with the peer to fetch the requested state information of multiple keys from the ledger.
 func (handler *Handler) handleGetStateBatch(keys []StateKey, channelId string, txid string) ([]StateKV, error) {
 	// Construct payload for BATCH_GET_STATE
-	pbKeys := make([]*pb.GetStateBatch_Key, 0, len(keys))
+	pbKeys := make([]*pb.StateKey, 0, len(keys))
 	for _, k := range keys {
-		pbKeys = append(pbKeys, &pb.GetStateBatch_Key{Key: k.Key, Collection: k.Collection})
+		pbKeys = append(pbKeys, &pb.StateKey{Key: k.Key, Collection: k.Collection})
 	}
 	payloadBytes, err := proto.Marshal(&pb.GetStateBatch{Keys: pbKeys})
 	if err != nil {
@@ -587,6 +587,45 @@ func (handler *Handler) handleDelState(collection string, key string, channelId 
 	// Incorrect chaincode message received
 	chaincodeLogger.Errorf("[%s] Incorrect chaincode message %s received. Expecting %s or %s", shorttxid(responseMsg.Txid), responseMsg.Type, pb.ChaincodeMessage_RESPONSE, pb.ChaincodeMessage_ERROR)
 	return errors.Errorf("[%s] incorrect chaincode message %s received. Expecting %s or %s", shorttxid(responseMsg.Txid), responseMsg.Type, pb.ChaincodeMessage_RESPONSE, pb.ChaincodeMessage_ERROR)
+}
+
+// handleDelStateBatch communicates with the peer to delete multiple keys from the state in the ledger with one request
+func (handler *Handler) handleDelStateBatch(keys []StateKey, channelId string, txid string) error {
+	// Construct payload for BATCH_DEL_STATE
+	pbKeys := make([]*pb.StateKey, 0, len(keys))
+	for _, k := range keys {
+		pbKeys = append(pbKeys, &pb.StateKey{Key: k.Key, Collection: k.Collection})
+	}
+	payloadBytes, err := proto.Marshal(&pb.DelStateBatch{Keys: pbKeys})
+	if err != nil {
+		chaincodeLogger.Errorf("[%s] marshal error", shorttxid(txid))
+		return errors.Errorf("[%s] DelStateBatchResponse marshall error", shorttxid(txid))
+	}
+
+	msg := &pb.ChaincodeMessage{Type: pb.ChaincodeMessage_DEL_STATE_BATCH, Payload: payloadBytes, Txid: txid, ChannelId: channelId}
+	chaincodeLogger.Debugf("[%s] Sending %s", shorttxid(msg.Txid), pb.ChaincodeMessage_DEL_STATE_BATCH)
+
+	responseMsg, err := handler.callPeerWithChaincodeMsg(msg, channelId, txid)
+	if err != nil {
+		return errors.WithMessage(err, fmt.Sprintf("[%s] error sending GET_STATE_BATCH", shorttxid(txid)))
+	}
+
+	if responseMsg.Type.String() == pb.ChaincodeMessage_RESPONSE.String() {
+		// Success response
+		chaincodeLogger.Debugf("[%s] DelStateBatch received payload %s", shorttxid(responseMsg.Txid), pb.ChaincodeMessage_RESPONSE)
+
+		return nil
+
+	}
+	if responseMsg.Type.String() == pb.ChaincodeMessage_ERROR.String() {
+		// Error response
+		chaincodeLogger.Errorf("[%s] DelStateBatch received error %s", shorttxid(responseMsg.Txid), pb.ChaincodeMessage_ERROR)
+		return errors.New(string(responseMsg.Payload[:]))
+	}
+
+	// Incorrect chaincode message received
+	chaincodeLogger.Errorf("[%s] Incorrect chaincode message %s received. Expecting %s or %s", shorttxid(responseMsg.Txid), responseMsg.Type, pb.ChaincodeMessage_RESPONSE, pb.ChaincodeMessage_ERROR)
+	return errors.Errorf("[%s] Incorrect chaincode message %s received. Expecting %s or %s", shorttxid(responseMsg.Txid), responseMsg.Type, pb.ChaincodeMessage_RESPONSE, pb.ChaincodeMessage_ERROR)
 }
 
 func (handler *Handler) handleGetStateByRange(collection, startKey, endKey string, metadata []byte,

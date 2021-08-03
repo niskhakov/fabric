@@ -235,6 +235,8 @@ func (h *Handler) handleMessageReadyState(msg *pb.ChaincodeMessage) error {
 		go h.HandleTransaction(msg, h.HandleGetStateBatch)
 	case pb.ChaincodeMessage_PUT_STATE_BATCH:
 		go h.HandleTransaction(msg, h.HandlePutStateBatch)
+	case pb.ChaincodeMessage_DEL_STATE_BATCH:
+		go h.HandleTransaction(msg, h.HandleDelStateBatch)
 	default:
 		return fmt.Errorf("[%s] Fabric side handler cannot handle message (%s) while in ready state", msg.Txid, msg.Type)
 	}
@@ -1207,6 +1209,42 @@ func (h *Handler) HandleDelState(msg *pb.ChaincodeMessage, txContext *Transactio
 	}
 
 	// Send response msg back to chaincode.
+	return &pb.ChaincodeMessage{Type: pb.ChaincodeMessage_RESPONSE, Txid: msg.Txid, ChannelId: msg.ChannelId}, nil
+}
+
+func (h *Handler) HandleDelStateBatch(msg *pb.ChaincodeMessage, txContext *TransactionContext) (*pb.ChaincodeMessage, error) {
+	delStateBatch := &pb.DelStateBatch{}
+	err := proto.Unmarshal(msg.Payload, delStateBatch)
+	if err != nil {
+		return nil, errors.Wrap(err, "unmarshal error")
+	}
+
+	chaincodeName := h.ChaincodeName()
+	chaincodeLogger.Debugf("[%s] deleting batch state for chaincode %s, channel %s", shorttxid(msg.Txid), chaincodeName, txContext.ChainID)
+
+	for _, key := range delStateBatch.Keys {
+		if isCollectionSet(key.Collection) {
+			if txContext.IsInitTransaction {
+				return nil, errors.New("private data APIs are not allowed in chaincode Init()")
+			}
+
+			// errorIfCreatorHasNoReadAccess caches read access checks
+			if err := errorIfCreatorHasNoReadAccess(chaincodeName, key.Collection, txContext); err != nil {
+				return nil, err
+			}
+
+			err = txContext.TXSimulator.DeletePrivateData(chaincodeName, key.Collection, key.Key)
+		} else {
+			err = txContext.TXSimulator.DeleteState(chaincodeName, key.Key)
+		}
+
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
+
+	}
+
+	// Send response msg back to chaincode
 	return &pb.ChaincodeMessage{Type: pb.ChaincodeMessage_RESPONSE, Txid: msg.Txid, ChannelId: msg.ChannelId}, nil
 }
 

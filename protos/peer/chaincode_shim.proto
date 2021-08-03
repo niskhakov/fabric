@@ -41,6 +41,7 @@ message ChaincodeMessage {
         GET_PRIVATE_DATA_HASH = 22;
         GET_STATE_BATCH = 23;
         PUT_STATE_BATCH = 24;
+        DEL_STATE_BATCH = 25;
     }
 
     Type type = 1;
@@ -75,12 +76,14 @@ message GetStateMetadata {
     string collection = 2;
 }
 
+// StateKey is the structure used in GetStateBatch and DelStateBatch
+message StateKey {
+    string key = 1;
+    string collection = 2;
+}
+
 message GetStateBatch {
-    message Key {
-        string key = 1;
-        string collection = 2;
-    }
-    repeated Key keys = 1;
+    repeated StateKey keys = 1;
 }
 
 // StateKV is the structure used in the result of GetStateBatch and as input to the PutStateBatch
@@ -123,6 +126,10 @@ message PutStateBatch {
 message DelState {
 	string key = 1;
 	string collection = 2;
+}
+
+message DelStateBatch {
+    repeated StateKey keys = 1;
 }
 
 // GetStateByRange is the payload of a ChaincodeMessage. It contains a start key and
