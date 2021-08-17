@@ -47,6 +47,17 @@ type ChaincodeStub struct {
 	delStateReturnsOnCall map[int]struct {
 		result1 error
 	}
+	DelStateBatchStub        func([]shim.StateKey) error
+	delStateBatchMutex       sync.RWMutex
+	delStateBatchArgsForCall []struct {
+		arg1 []shim.StateKey
+	}
+	delStateBatchReturns struct {
+		result1 error
+	}
+	delStateBatchReturnsOnCall map[int]struct {
+		result1 error
+	}
 	GetArgsStub        func() [][]byte
 	getArgsMutex       sync.RWMutex
 	getArgsArgsForCall []struct {
@@ -708,20 +719,87 @@ func (fake *ChaincodeStub) DelStateReturnsOnCall(i int, result1 error) {
 	}{result1}
 }
 
+func (fake *ChaincodeStub) DelStateBatch(arg1 []shim.StateKey) error {
+	var arg1Copy []shim.StateKey
+	if arg1 != nil {
+		arg1Copy = make([]shim.StateKey, len(arg1))
+		copy(arg1Copy, arg1)
+	}
+	fake.delStateBatchMutex.Lock()
+	ret, specificReturn := fake.delStateBatchReturnsOnCall[len(fake.delStateBatchArgsForCall)]
+	fake.delStateBatchArgsForCall = append(fake.delStateBatchArgsForCall, struct {
+		arg1 []shim.StateKey
+	}{arg1Copy})
+	stub := fake.DelStateBatchStub
+	fakeReturns := fake.delStateBatchReturns
+	fake.recordInvocation("DelStateBatch", []interface{}{arg1Copy})
+	fake.delStateBatchMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *ChaincodeStub) DelStateBatchCallCount() int {
+	fake.delStateBatchMutex.RLock()
+	defer fake.delStateBatchMutex.RUnlock()
+	return len(fake.delStateBatchArgsForCall)
+}
+
+func (fake *ChaincodeStub) DelStateBatchCalls(stub func([]shim.StateKey) error) {
+	fake.delStateBatchMutex.Lock()
+	defer fake.delStateBatchMutex.Unlock()
+	fake.DelStateBatchStub = stub
+}
+
+func (fake *ChaincodeStub) DelStateBatchArgsForCall(i int) []shim.StateKey {
+	fake.delStateBatchMutex.RLock()
+	defer fake.delStateBatchMutex.RUnlock()
+	argsForCall := fake.delStateBatchArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *ChaincodeStub) DelStateBatchReturns(result1 error) {
+	fake.delStateBatchMutex.Lock()
+	defer fake.delStateBatchMutex.Unlock()
+	fake.DelStateBatchStub = nil
+	fake.delStateBatchReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *ChaincodeStub) DelStateBatchReturnsOnCall(i int, result1 error) {
+	fake.delStateBatchMutex.Lock()
+	defer fake.delStateBatchMutex.Unlock()
+	fake.DelStateBatchStub = nil
+	if fake.delStateBatchReturnsOnCall == nil {
+		fake.delStateBatchReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.delStateBatchReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
 func (fake *ChaincodeStub) GetArgs() [][]byte {
 	fake.getArgsMutex.Lock()
 	ret, specificReturn := fake.getArgsReturnsOnCall[len(fake.getArgsArgsForCall)]
 	fake.getArgsArgsForCall = append(fake.getArgsArgsForCall, struct {
 	}{})
+	stub := fake.GetArgsStub
+	fakeReturns := fake.getArgsReturns
 	fake.recordInvocation("GetArgs", []interface{}{})
 	fake.getArgsMutex.Unlock()
-	if fake.GetArgsStub != nil {
-		return fake.GetArgsStub()
+	if stub != nil {
+		return stub()
 	}
 	if specificReturn {
 		return ret.result1
 	}
-	fakeReturns := fake.getArgsReturns
 	return fakeReturns.result1
 }
 
@@ -2947,6 +3025,8 @@ func (fake *ChaincodeStub) Invocations() map[string][][]interface{} {
 	defer fake.delPrivateDataMutex.RUnlock()
 	fake.delStateMutex.RLock()
 	defer fake.delStateMutex.RUnlock()
+	fake.delStateBatchMutex.RLock()
+	defer fake.delStateBatchMutex.RUnlock()
 	fake.getArgsMutex.RLock()
 	defer fake.getArgsMutex.RUnlock()
 	fake.getArgsSliceMutex.RLock()
