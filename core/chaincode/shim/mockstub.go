@@ -182,7 +182,12 @@ func (stub *MockStub) PutPrivateData(collection string, key string, value []byte
 }
 
 func (stub *MockStub) DelPrivateData(collection string, key string) error {
-	return errors.New("Not Implemented")
+	m, in := stub.PvtState[collection]
+	if in {
+		delete(m, key)
+	}
+
+	return nil
 }
 
 func (stub *MockStub) GetPrivateDataByRange(collection, startKey, endKey string) (StateQueryIteratorInterface, error) {
@@ -205,6 +210,25 @@ func (stub *MockStub) GetState(key string) ([]byte, error) {
 	value := stub.State[key]
 	mockLogger.Debug("MockStub", stub.Name, "Getting", key, value)
 	return value, nil
+}
+
+// GetStateBatch retrieves the value for a given key from the ledger
+func (stub *MockStub) GetStateBatch(keys []StateKey) ([]StateKV, error) {
+	// TODO: Create correct stub implementation for GetStateBatch
+	mockLogger.Debug("MockStub", stub.Name, "GettingBatch", keys)
+	result := make([]StateKV, 0, len(keys))
+	for _, key := range keys {
+		// check if public data
+		var b []byte
+		if key.Collection == "" {
+			b, _ = stub.GetState(key.Key)
+		} else {
+			b, _ = stub.GetPrivateData(key.Collection, key.Key)
+		}
+		result = append(result, StateKV{Collection: key.Collection, Key: key.Key, Value: b})
+	}
+
+	return result, nil
 }
 
 // PutState writes the specified `value` and `key` into the ledger.
@@ -257,6 +281,32 @@ func (stub *MockStub) PutState(key string, value []byte) error {
 	return nil
 }
 
+// PutStateBatch writes multiple keys and values into the ledger
+func (stub *MockStub) PutStateBatch(kvs []StateKV) error {
+	if stub.TxID == "" {
+		err := errors.New("cannot PutStateBatch without a transactions - call stub.MockTransactionStart()?")
+		mockLogger.Errorf("%+v", err)
+		return err
+	}
+
+	// If the value is nil or empty, delete the key
+	if len(kvs) == 0 {
+		mockLogger.Debug("MockStub", stub.Name, "PutStateBatch called, but kvs is nil or empty.")
+	}
+
+	mockLogger.Debug("MockStub", stub.Name, "Putting batch", kvs)
+	for _, kv := range kvs {
+		// Check if public data
+		if kv.Collection == "" {
+			stub.PutState(kv.Key, kv.Value)
+		} else {
+			stub.PutPrivateData(kv.Collection, kv.Key, kv.Value)
+		}
+	}
+
+	return nil
+}
+
 // DelState removes the specified `key` and its value from the ledger.
 func (stub *MockStub) DelState(key string) error {
 	mockLogger.Debug("MockStub", stub.Name, "Deleting", key, stub.State[key])
@@ -265,6 +315,19 @@ func (stub *MockStub) DelState(key string) error {
 	for elem := stub.Keys.Front(); elem != nil; elem = elem.Next() {
 		if strings.Compare(key, elem.Value.(string)) == 0 {
 			stub.Keys.Remove(elem)
+		}
+	}
+
+	return nil
+}
+
+func (stub *MockStub) DelStateBatch(keys []StateKey) error {
+	mockLogger.Debug("MockStub", stub.Name, "Deleting batch")
+	for _, key := range keys {
+		if key.Collection == "" {
+			stub.DelState(key.Key)
+		} else {
+			stub.DelPrivateData(key.Collection, key.Key)
 		}
 	}
 

@@ -458,6 +458,11 @@ func (stub *ChaincodeStub) GetState(key string) ([]byte, error) {
 	return stub.handler.handleGetState(collection, key, stub.ChannelId, stub.TxID)
 }
 
+// GetStateBatch documentation can be found in interfaces.go
+func (stub *ChaincodeStub) GetStateBatch(keys []StateKey) ([]StateKV, error) {
+	return stub.handler.handleGetStateBatch(keys, stub.ChannelId, stub.TxID)
+}
+
 // SetStateValidationParameter documentation can be found in interfaces.go
 func (stub *ChaincodeStub) SetStateValidationParameter(key string, ep []byte) error {
 	return stub.handler.handlePutStateMetadataEntry("", key, stub.validationParameterMetakey, ep, stub.ChannelId, stub.TxID)
@@ -485,6 +490,14 @@ func (stub *ChaincodeStub) PutState(key string, value []byte) error {
 	return stub.handler.handlePutState(collection, key, value, stub.ChannelId, stub.TxID)
 }
 
+// PutStateBatch documentation can be found in interfaces.go
+func (stub *ChaincodeStub) PutStateBatch(kvs []StateKV) error {
+	if len(kvs) == 0 {
+		return errors.New("`kvs` slice must not be empty")
+	}
+	return stub.handler.handlePutStateBatch(kvs, stub.ChannelId, stub.TxID)
+}
+
 func (stub *ChaincodeStub) createStateQueryIterator(response *pb.QueryResponse) *StateQueryIterator {
 	return &StateQueryIterator{CommonIterator: &CommonIterator{
 		handler:    stub.handler,
@@ -509,6 +522,14 @@ func (stub *ChaincodeStub) DelState(key string) error {
 	// Access public data by setting the collection to empty string
 	collection := ""
 	return stub.handler.handleDelState(collection, key, stub.ChannelId, stub.TxID)
+}
+
+// DelStateBatch documentation can be found in interfaces.go
+func (stub *ChaincodeStub) DelStateBatch(keys []StateKey) error {
+	if len(keys) == 0 {
+		return errors.New("`keys` slice must not be empty")
+	}
+	return stub.handler.handleDelStateBatch(keys, stub.ChannelId, stub.TxID)
 }
 
 //  ---------  private state functions  ---------

@@ -284,6 +284,49 @@ func TestPutEmptyState(t *testing.T) {
 
 }
 
+func TestGetStateBatchPrivate(t *testing.T) {
+	stub := NewMockStub("GetStateBatch", nil)
+
+	// Initial data
+	definedKeys := []StateKV{
+		{Key: "getOne", Value: []byte{161}, Collection: ""},
+		{Key: "getTwo", Value: []byte{162}, Collection: "priv1"},
+		{Key: "getThr", Value: []byte{165}, Collection: "priv2"},
+		{Key: "getFou", Value: []byte{163}, Collection: ""},
+		{Key: "getFiv", Value: []byte{164}, Collection: "priv3"},
+		{Key: "getSix", Value: []byte{166}, Collection: ""},
+	}
+
+	// Construct []StateKey struct for request in GetStateBatch
+	keys := make([]StateKey, 0)
+	for _, v := range definedKeys {
+		keys = append(keys, StateKey{Key: v.Key, Collection: v.Collection})
+	}
+
+	var err error
+
+	// Put values in the state using simple PutState
+	stub.MockTransactionStart("init")
+	for _, kv := range definedKeys {
+		if kv.Collection == "" {
+			err = stub.PutState(kv.Key, kv.Value)
+		} else {
+			err = stub.PutPrivateData(kv.Collection, kv.Key, kv.Value)
+		}
+		assert.NoError(t, err)
+	}
+	stub.MockTransactionEnd("init")
+
+	// Get them via GetStateBatch
+	stub.MockTransactionStart("getValues")
+
+	res, err := stub.GetStateBatch(keys)
+	assert.NoError(t, err)
+	assert.NotEqual(t, definedKeys, res)
+	stub.MockTransactionEnd("getValues")
+
+}
+
 //TestMockMock clearly cheating for coverage... but not. Mock should
 //be tucked away under common/mocks package which is not
 //included for coverage. Moving mockstub to another package
